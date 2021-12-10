@@ -1,10 +1,21 @@
 pipeline {
    agent any
+
    environment {
-       registry = "magalixcorp/k8scicd"
-       GOCACHE = "/tmp"
+     // You must set the following environment variables
+     // ORGANIZATION_NAME
+     // YOUR_DOCKERHUB_USERNAME (it doesn't matter if you don't have one)
+     
+     SERVICE_NAME = "go-app" 
+     REPOSITORY_TAG="${YOUR_DOCKERHUB_USERNAME}/${SERVICE_NAME}:${BUILD_ID}"
    }
    stages {
+       stage('Preparation') {
+         steps {
+            cleanWs()
+            git credentialsId: 'GitHub', url: "https://github.com/${ORGANIZATION_NAME}/${SERVICE_NAME}"
+         }
+      }
        stage('Build') {
            agent {
                docker {
@@ -21,45 +32,15 @@ pipeline {
                sh 'go build'
            }
        }
-    //    stage('Test') {
-    //        agent {
-    //            docker {
-    //                image 'golang'
-    //            }
-    //        }
-    //        steps {
-    //            // Create our project directory.
-    //            sh 'cd ${GOPATH}/src'
-    //            sh 'mkdir -p ${GOPATH}/src/hello-world'
-    //            // Copy all files in our Jenkins workspace to our project directory.
-    //            sh 'cp -r ${WORKSPACE}/* ${GOPATH}/src/hello-world'
-    //            // Remove cached test results.
-    //            sh 'go clean -cache'
-    //            // Run Unit Tests.
-    //            sh 'go test ./... -v -short'
-    //        }
-    //    }
-       stage('Publish') {
-           environment {
-               registryCredential = 'GitHub'
-           }
-           steps{
-               script {
-                   def appimage = docker.build registry + ":$BUILD_NUMBER"
-                   docker.withRegistry( '', registryCredential ) {
-                       appimage.push()
-                       appimage.push('latest')
-                   }
-               }
-           }
-       }
-       stage ('Deploy') {
-           steps {
-               script{
-                   def image_id = registry + ":$BUILD_NUMBER"
-                   sh "ansible-playbook  playbook.yml --extra-vars \"image_id=${image_id}\""
-               }
-           }
-       }
+       stage('Build and Push Image') {
+         steps {
+           sh 'docker image build -t ${REPOSITORY_TAG} .'
+         }
+      }
+       stage('Deploy to Cluster') {
+          steps {
+            sh 'envsubst < ${WORKSPACE}/deploy.yaml | kubectl apply -f -'
+          }
+      }
    }
 }
